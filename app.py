@@ -74,7 +74,7 @@ modis = (
 Map = geemap.Map(center=[21.0, 57.0], zoom=6)
 
 # إضافة طبقة الأعماق كخلفية مائية مجانية
-bathymetry_vis = {
+#bathymetry_vis = {
     "min": -4000,
     "max": 0,
     "palette": ["#000011", "#001144", "#0033aa", "#aaeeff"],
