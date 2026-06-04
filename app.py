@@ -109,7 +109,8 @@ if gee_connected:
             st.warning(f"⚠️ بيانات درجة حرارة سطح البحر غير متوفرة لشهر {month_str} عام {year}. يرجى تجربة تاريخ آخر.")
 
     # عرض الخريطة داخل تطبيق Streamlit بكفاءة وبدون أبعاد مكسورة
-    Map.to_streamlit(height=650, width=None)
+    # استخدام دالة العرض المخصصة والمستقرة لـ Streamlit
+    geemap.st_pydeck_util(Map, height=650, width=1100)
 
 else:
     st.info("ℹ️ يرجى إعداد الصلاحيات وربط المفتاح السري بشكل صحيح لتتمكن من استعراض الخريطة التفاعلية.")
