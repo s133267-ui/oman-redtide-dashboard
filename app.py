@@ -1,7 +1,7 @@
 import datetime
 import json
 import ee
-import geemap.foliumap as geemap
+import geemap
 import streamlit as st
 
 # 1. إعدادات واجهة المستخدم للداشبورد
@@ -103,7 +103,7 @@ else:
     st.sidebar.success(f"🌡️ يعرض الآن: درجة حرارة البحر لشهر {month} لعام {year}")
 
 # 7. عرض الخريطة داخل الداشبورد
-Map.to_streamlit(height=650)
+Map.to_streamlit(height=650, width=None)
 
 # 8. أسفل الصفحة معلومات توضيحية
 st.markdown("---")
