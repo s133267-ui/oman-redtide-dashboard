@@ -90,7 +90,12 @@ if indicator == "تركيز الكلوروفيل (Chlorophyll-a)":
         "max": 15,
         "palette": ["blue", "cyan", "green", "yellow", "red"],
     }
-    Map.addLayer(chl_image, chl_vis, f"تركيز الكلوروفيل ({month}-{year})")
+    # أمان لمنع انهيار الموقع إذا كان الشهر المختار لا يحتوي على بيانات قمر صناعي جاهزة
+try:
+    if chl_image:
+        Map.addLayer(chl_image, chl_vis, f"تركيز الكلوروفيل ({month}-{year})")
+except Exception:
+    st.warning(f"⚠️ البيانات غير متوفرة حالياً لشهر {month} عام {year}، يرجى تغيير التاريخ من اللوحة الجانبية.")
     st.sidebar.success(f"📊 يعرض الآن: الكلوروفيل لشهر {month} لعام {year}")
 else:
     sst_image = modis.select("sst").clip(oman_coasts)
