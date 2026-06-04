@@ -55,7 +55,7 @@ st.sidebar.header("⚙️ إعدادات الفلترة والأقمار")
 
 satellite_source = st.sidebar.selectbox(
     "إختر القمر الصناعي المورد للبيانات:",
-    ["MODIS Aqua (ناسا - نطاق واسع تاريخي)", "Landsat 8/9 Operational (USGS - دقة عالية 30م)"]
+    ["MODIS Aqua (ناسا - نطاق واسع تاريخي)", "GCOM-C SGLI (الوكالة الآسيوية - بديل سنتينل المتطور)"]
 )
 
 indicator = st.sidebar.selectbox(
@@ -74,12 +74,12 @@ year_mode = st.sidebar.selectbox("طريقة المقارنة بالشارت:", 
 current_year = datetime.now().year
 
 if year_mode == "سنة واحدة (أشهر متعاقبة)":
-    selected_year = st.sidebar.slider("اختر السنة المعروضة:", 2013 if satellite_source.startswith("Landsat") else 2000, current_year, 2024)
+    selected_year = st.sidebar.slider("اختر السنة المعروضة:", 2018, current_year, 2024)
     selected_month = st.sidebar.slider("اختر الشهر المعروض:", 1, 12, 4)
     start_year, end_year = selected_year, selected_year
 else:
     selected_month = st.sidebar.slider("اختر الشهر المستهدف (مثلاً 7):", 1, 12, 7)
-    start_year, end_year = st.sidebar.slider("نطاق السنوات المقارنة:", 2013 if satellite_source.startswith("Landsat") else 2000, current_year, (2020, 2026))
+    start_year, end_year = st.sidebar.slider("نطاق السنوات المقارنة:", 2018, current_year, (2020, 2026))
     selected_year = start_year
 
 month_str = str(selected_month).zfill(2)
@@ -91,9 +91,9 @@ with col_tools:
     st.markdown("### 🎨 تصنيف الخريطة والمفتاح")
     
     if indicator == "تركيز الكلوروفيل (Chlorophyll-a)":
-        val_range = st.slider("مدى تركيز الكلوروفيل المستهدف:", 0.0, 20.0, (0.2, 8.0), step=0.1)
+        val_range = st.slider("مدى تركيز الكلوروفيل المستهدف (mg/m³):", 0.0, 30.0, (0.3, 15.0), step=0.1)
     else:
-        val_range = st.slider("مدى درجات الحرارة المستهدفة (°C):", 15.0, 38.0, (22.0, 32.0), step=0.5)
+        val_range = st.slider("مدى درجات الحرارة المستهدفة (°C):", 15.0, 38.0, (20.0, 32.0), step=0.5)
 
     classes_num = st.slider("عدد فئات التصنيف (Classes):", 3, 7, 5)
     palette_style = st.selectbox("نمط التدرج اللوني لليجند:", ["قوس قزح التفاعلي", "تدرج بيئي مخصص", "أحمر تنبيهي"])
@@ -115,7 +115,7 @@ if gee_connected:
     else:
         target_aoi = ee.Geometry.MultiPolygon([poly_gulf_of_oman, poly_arabian_sea])
 
-    # 5. معالجة وحساب المؤشرات بناءً على القمر المختار
+    # 5. معالجة وحساب المؤشرات بناءً على القمر المختار (MODIS أو القمر الآسيوي المتطور GCOM-C)
     image_to_show = None
     start_date = f"{selected_year}-{month_str}-01"
     end_date = f"{selected_year}-{month_str}-28"
@@ -129,20 +129,17 @@ if gee_connected:
                 raw_img = dataset.median().clip(target_aoi)
                 image_to_show = raw_img.updateMask(raw_img.gte(val_range[0]).And(raw_img.lte(val_range[1])))
         else:
-            # 🌟 حساب مؤشر الكلوروفيل الفائق بدقة 30 متر باستخدام Landsat 8/9 المستقر جداً
-            landsat_coll = ee.ImageCollection('LANDSAT/LC08/C02/T1_L2').filterDate(start_date, end_date).filterBounds(target_aoi)
-            if landsat_coll.size().getInfo() > 0:
-                landsat_img = landsat_coll.median().clip(target_aoi)
-                if indicator == "تركيز الكلوروفيل (Chlorophyll-a)":
-                    # كود رياضي سريع الحساب لحساب تركيز الكلوروفيل للشواطئ (باند الأخضر / باند الأحمر)
-                    green = landsat_img.select('SR_B3')
-                    red = landsat_img.select('SR_B4')
-                    raw_img = green.divide(red).multiply(2.0) 
+            # 🌟 سحب بيانات الكلوروفيل والحرارة من القمر الآسيوي GCOM-C المخصص للمحيطات بدقة ممتازة وبدون انهيار السيرفر
+            if indicator == "تركيز الكلوروفيل (Chlorophyll-a)":
+                dataset = ee.ImageCollection('JAXA/GCOM-C/L3/OCEAN/CHLA/V3').filterDate(start_date, end_date).filterBounds(target_aoi).select('CHLA_AVE')
+                if dataset.size().getInfo() > 0:
+                    raw_img = dataset.median().clip(target_aoi).multiply(0.001) # معامل التصحيح الفيزيائي للمستشعر
                     image_to_show = raw_img.updateMask(raw_img.gte(val_range[0]).And(raw_img.lte(val_range[1])))
-                else:
-                    # حساب درجة حرارة السطح الافتراضية من الباند الحراري للاندسات
-                    thermal = landsat_img.select('ST_B10').multiply(0.00341802).add(149.0).subtract(273.15)
-                    image_to_show = thermal.updateMask(thermal.gte(val_range[0]).And(thermal.lte(val_range[1])))
+            else:
+                dataset = ee.ImageCollection('JAXA/GCOM-C/L3/OCEAN/SST/V3').filterDate(start_date, end_date).filterBounds(target_aoi).select('SST_AVE')
+                if dataset.size().getInfo() > 0:
+                    raw_img = dataset.median().clip(target_aoi).multiply(0.02).subtract(273.15) # التحويل لدرجات مئوية
+                    image_to_show = raw_img.updateMask(raw_img.gte(val_range[0]).And(raw_img.lte(val_range[1])))
     except Exception as e:
         pass
 
@@ -156,7 +153,7 @@ if gee_connected:
     vis_params = {'min': val_range[0], 'max': val_range[1], 'palette': selected_palette}
 
     with col_main:
-        # صناعة مفتاح ديناميكي فريد لإجبار المتصفح على الاستجابة الفورية عند تغيير القوائم
+        # التفاعل الفوري عبر رصد مفتاح فريد للخريطة والمتصفح
         map_key = f"map_{satellite_source}_{indicator}_{region_choice}_{selected_year}_{selected_month}_{val_range[0]}_{val_range[1]}_{palette_style}"
         
         m = folium.Map(location=[21.0, 57.0], zoom_start=6, tiles="OpenStreetMap")
@@ -177,7 +174,7 @@ if gee_connected:
                     overlay=True, control=True
                 ).add_to(m)
                 
-                # بناء الـ Legend التفاعلي الذكي
+                # بناء الـ Legend التفاعلي الذكي المعلق على الخريطة
                 legend_html = f'''
                 <div style="position: fixed; bottom: 40px; right: 40px; width: 170px; height: auto; 
                 background-color: white; border:2px solid #008080; z-index:9999; font-size:12px; padding: 8px; border-radius: 6px; font-family:sans-serif;">
@@ -190,11 +187,11 @@ if gee_connected:
                 legend_html += '</div>'
                 m.get_root().html.add_child(folium.Element(legend_html))
                 
-                st.success(f"✅ تم تحديث الخريطة فوريّاً لعرض بيئة {indicator} لسواحل عُمان بنجاح.")
+                st.success(f"✅ تم تحديث الخريطة فوريّاً وعرض بيانات {indicator} بنجاح.")
             except Exception:
                 pass
         else:
-            st.warning("⚠️ لا تتوفر مرئيات كافية لهذا الشهر؛ يرجى تغيير التاريخ أو تعديل فلتر القيم بالسلايدر الأيمن.")
+            st.warning("⚠️ لا تتوفر مرئيات كافية لهذا الشهر؛ يرجى اختيار تاريخ آخر أو تعديل فلاتر السلايدر الأيمن.")
 
         folium.LayerControl(position='topright').add_to(m)
         map_output = st_folium(m, width="100%", height=500, key=map_key, returned_objects=["bounds"])
@@ -239,7 +236,7 @@ if gee_connected:
 
     st.plotly_chart(fig, use_container_width=True)
 
-    # 8. بوابة التصدير المصلحة بالكامل لتعمل فوراً وتحميل الراستر
+    # 8. بوابة التصدير المصلحة بالكامل لتعمل فوراً وتحميل الراستر للـ ArcGIS Pro
     st.write("---")
     st.subheader("📥 بوابة تصدير البيانات والملفات (ArcGIS Pro Support)")
     
@@ -250,17 +247,16 @@ if gee_connected:
         
         if image_to_show is not None:
             try:
-                # تصدير نطاق مضلع مصغر لضمان استجابة السيرفر الفورية للتحميل الفوري
                 proj_aoi = target_aoi.bounds().geometry()
                 download_url = ee.Image(image_to_show).getDownloadURL({
-                    'scale': 6000 if satellite_source.startswith("Landsat") else 4000,
+                    'scale': 4000,
                     'crs': 'EPSG:4326',
                     'region': proj_aoi.getInfo()['coordinates'],
                     'format': 'GEO_TIFF'
                 })
                 st.markdown(f'<a href="{download_url}" target="_blank" style="text-decoration:none;"><button style="background-color:#008080; color:white; border-radius:6px; padding:12px 20px; border:none; cursor:pointer; font-weight:bold; font-size:14px; box-shadow:0 2px 4px rgba(0,0,0,0.1);">📥 تنزيل ملف GeoTIFF الحالي لـ ArcPro</button></a>', unsafe_allow_html=True)
-            except Exception as export_err:
-                st.info("💡 لتوليد الرابط الفوري؛ يرجى اختيار 'بحر عمان فقط' أو 'بحر العرب فقط' من القائمة اليسرى لتقليص حجم المخرجات للراستر.")
+            except Exception:
+                st.info("💡 لتوليد الرابط الفوري المباشر؛ يرجى تحديد 'بحر عمان فقط' أو 'بحر العرب فقط' لتقليص مساحة الاستخراج الحسابي السحابي.")
                 
     with col_shp:
         st.markdown("##### 📊 تصدير قاعدة البيانات الإحصائية:")
