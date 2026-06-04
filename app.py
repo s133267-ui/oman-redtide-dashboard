@@ -3,7 +3,6 @@ import ee
 import geemap
 import json
 from datetime import datetime
-import streamlit.components.v1 as components
 
 # إعداد واجهة المستخدم والعناوين
 st.set_page_config(layout="wide", page_title="نظام مراقبة المد الأحمر")
@@ -19,6 +18,7 @@ def authenticate_gee():
             if isinstance(json_keys, str):
                 json_keys = json.loads(json_keys)
             
+            # معالجة الرموز المخفية للمفتاح الخاص
             private_key = json_keys.get("private_key", "")
             if "\\n" in private_key:
                 json_keys["private_key"] = private_key.replace("\\n", "\n")
@@ -53,9 +53,10 @@ start_date = f"{year}-{month_str}-01"
 end_date = f"{year}-{month_str}-28"
 
 if gee_connected:
+    # تحديد النطاق الجغرافي لسواحل سلطنة عمان
     oman_coasts = ee.Geometry.Rectangle([52.0, 16.0, 60.0, 27.0])
     
-    # إنشاء الخريطة الأساسية
+    # إنشاء الخريطة باستخدام المكون التفاعلي الأساسي والمستقر
     Map = geemap.Map(center=[21.0, 57.0], zoom=6)
     
     chl_image = None
@@ -83,7 +84,7 @@ if gee_connected:
     except Exception:
         pass
 
-    # عرض الطبقات بناءً على الفلترة
+    # عرض الطبقات البيئية فوق الخريطة
     if indicator == "تركيز الكلوروفيل (Chlorophyll-a)":
         if chl_image is not None:
             chl_vis = {'min': 0.01, 'max': 20.0, 'palette': ['blue', 'cyan', 'green', 'yellow', 'red']}
@@ -100,12 +101,8 @@ if gee_connected:
         else:
             st.warning(f"⚠️ بيانات درجة حرارة سطح البحر غير متوفرة لشهر {month_str} عام {year}.")
 
-    # عرض الخريطة الآمن عبر تمريرها كملف HTML مدمج لمنع الاختفاء والتعارض تماماً
-    try:
-        html_string = Map.to_html()
-        components.html(html_string, height=650, scrolling=True)
-    except Exception as map_err:
-        st.error(f"حدث خطأ أثناء عرض واجهة الخريطة: {str(map_err)}")
+    # التعديل الذهبي: عرض الخريطة بالدالة الأصلية المدعومة بملء الشاشة ومساحة عمودية واضحة لمنع الاختفاء
+    Map.to_streamlit(height=650)
 
 else:
     st.info("ℹ️ يرجى إعداد الصلاحيات وربط المفتاح السري بشكل صحيح.")
