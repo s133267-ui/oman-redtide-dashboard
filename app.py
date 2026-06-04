@@ -1,117 +1,115 @@
-import datetime
-import json
+import streamlit as st
 import ee
 import geemap
-import streamlit as st
+import json
+from datetime import datetime
 
-# 1. إعدادات واجهة المستخدم للداشبورد
-st.set_page_config(layout="wide", page_title="داشبورد مراقبة المد الأحمر - سلطنة عمان")
+# إعداد واجهة المستخدم والعناوين
+st.set_page_config(layout="wide", page_title="نظام مراقبة المد الأحمر")
+st.markdown("<h1 style='text-align: center; color: #008080;'>🛸 نظام مراقبة المد الأحمر المؤتمت لسواحل سلطنة عُمان</h1>", unsafe_allow_html=True)
+st.markdown("<p style='text-align: center; color: #666;'>تحليل مستمر لبيانات الكلوروفيل ودرجة حرارة سطح البحر (SST)</p>", unsafe_allow_html=True)
 
-# تصميم العنوان باللغة العربية
-st.markdown(
-    "<h1 style='text-align: center; color: #008080;'>🛸 نظام مراقبة المد الأحمر المؤتمت لسواحل سلطنة عُمان</h1>",
-    unsafe_allow_html=True,
-)
-st.markdown(
-    "<p style='text-align: center;'>تحليل مستمر لبيانات الكلوروفيل، درجة حرارة سطح البحر (SST)، وأعماق المياه</p>",
-    unsafe_allow_html=True,
-)
-
-# 2. تفعيل الاتصال الآمن بجوجل إيرث إنجين باستخدام الرموز السرية (Secrets)
+# دالة الاتصال بجوجل إيرث إنجين باستخدام المفاتيح السرية
 @st.cache_resource
 def authenticate_gee():
     try:
-        # قراءة المفتاح السري الذي سنضعه في إعدادات السيرفر في المرحلة الرابعة
-        credentials_dict = json.loads(st.secrets["GEE_KEYS"])
-        credentials = ee.ServiceAccountCredentials(
-            credentials_dict["client_email"], key_data=credentials_dict["private_key"]
-        )
-        ee.Initialize(credentials, project=credentials_dict["project_id"])
+        if "GEE_KEYS" in st.secrets:
+            json_keys = json.loads(st.secrets["GEE_KEYS"])
+            if isinstance(json_keys, str):
+                json_keys = json.loads(json_keys)
+            
+            # محاولة قراءة المفتاح الخاص بأمان ومعالجة الرموز المخفية
+            private_key = json_keys.get("private_key", "")
+            if "\\n" in private_key:
+                json_keys["private_key"] = private_key.replace("\\n", "\n")
+                
+            credentials = ee.ServiceAccountCredentials(json_keys["client_email"], key_data=json.dumps(json_keys))
+            ee.Initialize(credentials)
+            return True
+        else:
+            st.error("❌ لم يتم العثور على المتغير GEE_KEYS في إعدادات Secrets!")
+            return False
     except Exception as e:
-        st.error(f"خطأ في الاتصال بسيرفر Google Earth Engine: {e}")
+        st.error(f"❌ خطأ في الاتصال بسيرفر Google Earth Engine: {str(e)}")
+        return False
 
-authenticate_gee()
+# تشغيل الاتصال
+gee_connected = authenticate_gee()
 
-# 3. تحديد الحدود الجغرافية لسواحل سلطنة عمان (من مسندم إلى ظفار)
-oman_coasts = ee.Geometry.Rectangle([52.0, 16.0, 60.0, 27.0])
+# لوحة التحكم الجانبية (Sidebar)
+st.sidebar.header("🗺️ لوحة الفلترة والتحكم")
 
-# 4. شريط التحكم الجانبي في الموقع (Sidebar)
-st.sidebar.image(
-    "https://cdn-icons-png.flaticon.com/512/4144/4144426.png", width=100
-)
-st.sidebar.header("🎛️ لوحة الفلترة والتحكم")
-
+# اختيار المؤشر البيئي
 indicator = st.sidebar.selectbox(
-    "اختر المؤشر البيئي للمراقبة:",
-    ("تركيز الكلوروفيل (Chlorophyll-a)", "درجة حرارة سطح البحر (SST)"),
+    "إختر المؤشر البيئي للمراقبة:",
+    ["تركيز الكلوروفيل (Chlorophyll-a)", "درجة حرارة سطح البحر (SST)"]
 )
 
-# تحديد السنوات ديناميكياً حتى السنة الحالية 2026
-current_year = datetime.date.today().year
-year = st.sidebar.slider("اختر السنة:", 2002, current_year, current_year)
-month = st.sidebar.slider("اختر الشهر:", 1, 12, datetime.date.today().month)
+# اختيار السنة والشهر
+current_year = datetime.now().year
+year = st.sidebar.slider("اختر السنة:", 2000, current_year, current_year)
+month = st.sidebar.slider("اختر الشهر:", 1, 12, 1)
 
-# تحضير تواريخ الفلترة بناءً على اختيار المستخدم
-start_date = f"{year}-{month:02d}-01"
-if month == 12:
-    end_date = f"{year+1}-01-01"
+# تنسيق الشهر والسنة بشكل متوافق مع قواعد بيانات الأقمار الصناعية (خانة مزدوجة للشهور)
+month_str = str(month).zfill(2)
+start_date = f"{year}-{month_str}-01"
+end_date = f"{year}-{month_str}-28"
+
+if gee_connected:
+    # تحديد النطاق الجغرافي لسواحل سلطنة عمان
+    oman_coasts = ee.Geometry.Rectangle([52.0, 16.0, 60.0, 27.0])
+    
+    # تجهيز الخريطة التفاعلية الأساسية لـ Geemap المتوافقة مع السيرفرات الحديثة
+    Map = geemap.Map(center=[21.0, 57.0], zoom=6)
+    
+    # 1. جلب بيانات الكلوروفيل من قمر MODIS التابع لناسا
+    try:
+        chl_dataset = (ee.ImageCollection('NASA/OCEANDATA/MODIS-Aqua/L3SMI')
+                       .filterDate(start_date, end_date)
+                       .filterBounds(oman_coasts)
+                       .select('chlor_a'))
+        
+        # التأكد من وجود صور في الفترة المختارة
+        if chl_dataset.size().getInfo() > 0:
+            chl_image = chl_dataset.median().clip(oman_coasts)
+            chl_vis = {'min': 0.01, 'max': 20.0, 'palette': ['blue', 'cyan', 'green', 'yellow', 'red']}
+        else:
+            chl_image = None
+    except Exception:
+        chl_image = None
+
+    # 2. جلب بيانات درجة حرارة سطح البحر (SST)
+    try:
+        sst_dataset = (ee.ImageCollection('NASA/OCEANDATA/MODIS-Aqua/L3SMI')
+                       .filterDate(start_date, end_date)
+                       .filterBounds(oman_coasts)
+                       .select('sst'))
+        
+        if sst_dataset.size().getInfo() > 0:
+            sst_image = sst_dataset.median().clip(oman_coasts)
+            sst_vis = {'min': 15.0, 'max': 35.0, 'palette': ['blue', 'purple', 'green', 'yellow', 'red']}
+        else:
+            sst_image = None
+    except Exception:
+        sst_image = None
+
+    # تطبيق العرض بناءً على اختيار المستخدم من اللوحة الجانبية مع تجنب الانهيار
+    if indicator == "تركيز الكلوروفيل (Chlorophyll-a)":
+        if chl_image is not None:
+            Map.addLayer(chl_image, chl_vis, f"Chlorophyll-a ({month_str}-{year})")
+            st.success(f"✅ تم عرض بيانات الكلوروفيل لشهر {month_str} عام {year} بنجاح.")
+        else:
+            st.warning(f"⚠️ بيانات الكلوروفيل غير متوفرة أو لم يتم معالجتها بعد لشهر {month_str} عام {year} في سيرفرات جوجل. يرجى تجربة تاريخ آخر.")
+            
+    elif indicator == "درجة حرارة سطح البحر (SST)":
+        if sst_image is not None:
+            Map.addLayer(sst_image, sst_vis, f"SST ({month_str}-{year})")
+            st.success(f"✅ تم عرض بيانات حرارة السطح (SST) لشهر {month_str} عام {year} بنجاح.")
+        else:
+            st.warning(f"⚠️ بيانات درجة حرارة سطح البحر غير متوفرة لشهر {month_str} عام {year}. يرجى تجربة تاريخ آخر.")
+
+    # عرض الخريطة داخل تطبيق Streamlit بكفاءة وبدون أبعاد مكسورة
+    Map.to_streamlit(height=650, width=None)
+
 else:
-    end_date = f"{year}-{month+1:02d}-01"
-
-# 5. جلب البيانات الجغرافية من سيرفرات جوجل
-# أ) بيانات أعماق المياه (ثابتة وقوية)
-bathymetry = ee.Image("GEBCO/v2022").select("elevation").clip(oman_coasts)
-
-# ب) بيانات قمر ناسا (MODIS Aqua) للبحار
-modis = (
-    ee.ImageCollection("NASA/OCEANCOLOR/MODISA/L3SMI")
-    .filterDate(start_date, end_date)
-    .filterBounds(oman_coasts)
-    .mean()
-)
-
-# 6. بناء الخريطة التفاعلية
-Map = geemap.Map(center=[21.0, 57.0], zoom=6)
-
-# إضافة طبقة الأعماق كخلفية مائية مجانية
-bathymetry_vis = {
-    "min": -4000,
-    "max": 0,
-    "palette": ["#000011", "#001144", "#0033aa", "#aaeeff"],
-}
-#Map.addLayer(bathymetry, bathymetry_vis, "أعماق المياه (GEBCO)", True, 0.4)
-
-# إضافة مؤشر المراقبة المختار
-if indicator == "تركيز الكلوروفيل (Chlorophyll-a)":
-    chl_image = modis.select("chlor_a").clip(oman_coasts)
-    # تدرج ألوان: الأزرق (سليم)، الأخضر (متوسط)، الأحمر (كثافة طحالب عالية - خطر مد أحمر)
-    chl_vis = {
-        "min": 0.01,
-        "max": 15,
-        "palette": ["blue", "cyan", "green", "yellow", "red"],
-    }
-    # أمان لمنع انهيار الموقع إذا كان الشهر المختار لا يحتوي على بيانات قمر صناعي جاهزة
-try:
-    if chl_image:
-        Map.addLayer(chl_image, chl_vis, f"تركيز الكلوروفيل ({month}-{year})")
-except Exception:
-    st.warning(f"⚠️ البيانات غير متوفرة حالياً لشهر {month} عام {year}، يرجى تغيير التاريخ من اللوحة الجانبية.")
-    st.sidebar.success(f"📊 يعرض الآن: الكلوروفيل لشهر {month} لعام {year}")
-else:
-    sst_image = modis.select("sst").clip(oman_coasts)
-    sst_vis = {
-        "min": 18,
-        "max": 34,
-        "palette": ["blue", "green", "yellow", "orange", "red"],
-    }
-    Map.addLayer(sst_image, sst_vis, f"درجة حرارة السطح ({month}-{year})")
-    st.sidebar.success(f"🌡️ يعرض الآن: درجة حرارة البحر لشهر {month} لعام {year}")
-
-# 7. عرض الخريطة داخل الداشبورد
-Map.to_streamlit(height=650, width=None)
-
-# 8. أسفل الصفحة معلومات توضيحية
-st.markdown("---")
-st.caption(
-    "💡 هذا النظام يعمل بصفر تكلفة استضافة ويقوم بتحديث بياناته تلقائياً فور صدورها من وكالات الفضاء العالمية."
-)
+    st.info("ℹ️ يرجى إعداد الصلاحيات وربط المفتاح السري بشكل صحيح لتتمكن من استعراض الخريطة التفاعلية.")
