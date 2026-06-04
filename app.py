@@ -1,8 +1,9 @@
 import streamlit as st
 import ee
-import geemap
 import json
 from datetime import datetime
+import folium
+from streamlit_folium import st_folium
 
 # إعداد واجهة المستخدم والعناوين
 st.set_page_config(layout="wide", page_title="نظام مراقبة المد الأحمر")
@@ -18,7 +19,6 @@ def authenticate_gee():
             if isinstance(json_keys, str):
                 json_keys = json.loads(json_keys)
             
-            # معالجة الرموز المخفية للمفتاح الخاص
             private_key = json_keys.get("private_key", "")
             if "\\n" in private_key:
                 json_keys["private_key"] = private_key.replace("\\n", "\n")
@@ -56,8 +56,8 @@ if gee_connected:
     # تحديد النطاق الجغرافي لسواحل سلطنة عمان
     oman_coasts = ee.Geometry.Rectangle([52.0, 16.0, 60.0, 27.0])
     
-    # إنشاء الخريطة باستخدام المكون التفاعلي الأساسي والمستقر
-    Map = geemap.Map(center=[21.0, 57.0], zoom=6)
+    # جلب الخريطة الأساسية باستخدام Folium الأصلي المستقر
+    m = folium.Map(location=[21.0, 57.0], zoom_start=6, tiles="OpenStreetMap")
     
     chl_image = None
     sst_image = None
@@ -84,11 +84,18 @@ if gee_connected:
     except Exception:
         pass
 
-    # عرض الطبقات البيئية فوق الخريطة
+    # تجهيز وعرض الطبقة المختارة
     if indicator == "تركيز الكلوروفيل (Chlorophyll-a)":
         if chl_image is not None:
             chl_vis = {'min': 0.01, 'max': 20.0, 'palette': ['blue', 'cyan', 'green', 'yellow', 'red']}
-            Map.addLayer(chl_image, chl_vis, f"Chlorophyll-a ({month_str}-{year})")
+            map_id_dict = ee.Image(chl_image).getMapId(chl_vis)
+            folium.TileLayer(
+                tiles=map_id_dict['tile_fetcher'].url_format,
+                attr='Google Earth Engine',
+                name=f'Chlorophyll-a ({month_str}-{year})',
+                overlay=True,
+                control=True
+            ).add_to(m)
             st.success(f"✅ تم عرض بيانات الكلوروفيل لشهر {month_str} عام {year} بنجاح.")
         else:
             st.warning(f"⚠️ بيانات الكلوروفيل غير متوفرة لشهر {month_str} عام {year}.")
@@ -96,13 +103,20 @@ if gee_connected:
     elif indicator == "درجة حرارة سطح البحر (SST)":
         if sst_image is not None:
             sst_vis = {'min': 15.0, 'max': 35.0, 'palette': ['blue', 'purple', 'green', 'yellow', 'red']}
-            Map.addLayer(sst_image, sst_vis, f"SST ({month_str}-{year})")
+            map_id_dict = ee.Image(sst_image).getMapId(sst_vis)
+            folium.TileLayer(
+                tiles=map_id_dict['tile_fetcher'].url_format,
+                attr='Google Earth Engine',
+                name=f'SST ({month_str}-{year})',
+                overlay=True,
+                control=True
+            ).add_to(m)
             st.success(f"✅ تم عرض بيانات حرارة السطح (SST) لشهر {month_str} عام {year} بنجاح.")
         else:
             st.warning(f"⚠️ بيانات درجة حرارة سطح البحر غير متوفرة لشهر {month_str} عام {year}.")
 
-    # التعديل الذهبي: عرض الخريطة بالدالة الأصلية المدعومة بملء الشاشة ومساحة عمودية واضحة لمنع الاختفاء
-    Map.to_streamlit(height=650)
+    # عرض الخريطة الآمنة والمضمونة داخل حاوية Streamlit
+    st_folium(m, width="100%", height=600, returned_objects=[])
 
 else:
     st.info("ℹ️ يرجى إعداد الصلاحيات وربط المفتاح السري بشكل صحيح.")
