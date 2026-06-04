@@ -79,7 +79,7 @@ bathymetry_vis = {
     "max": 0,
     "palette": ["#000011", "#001144", "#0033aa", "#aaeeff"],
 }
-Map.addLayer(bathymetry, bathymetry_vis, "أعماق المياه (GEBCO)", True, 0.4)
+#Map.addLayer(bathymetry, bathymetry_vis, "أعماق المياه (GEBCO)", True, 0.4)
 
 # إضافة مؤشر المراقبة المختار
 if indicator == "تركيز الكلوروفيل (Chlorophyll-a)":
